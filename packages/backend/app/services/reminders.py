@@ -8,6 +8,7 @@ try:
 except Exception:  # pragma: no cover
     TwilioClient = None
 
+from .job_manager import retry_sync
 
 _settings = Settings()
 
@@ -69,3 +70,31 @@ def send_reminder(r: Reminder):
         to = r.channel if "@" in r.channel else (_settings.email_from or "")
         subject = "Bill Reminder"
         return send_email(to, subject, r.message)
+
+
+# Resilient versions with automatic retry (exponential backoff, max 5 retries)
+@retry_sync(max_retries=5, backoff="exponential")
+def send_email_resilient(to_email: str, subject: str, body: str):
+    """Send email with automatic retry on failure."""
+    result = send_email(to_email, subject, body)
+    if not result:
+        raise RuntimeError(f"Failed to send email to {to_email}")
+    return True
+
+
+@retry_sync(max_retries=5, backoff="exponential")
+def send_whatsapp_resilient(to_number: str, body: str):
+    """Send WhatsApp message with automatic retry on failure."""
+    result = send_whatsapp(to_number, body)
+    if not result:
+        raise RuntimeError(f"Failed to send WhatsApp to {to_number}")
+    return True
+
+
+@retry_sync(max_retries=5, backoff="exponential")
+def send_reminder_resilient(r: Reminder):
+    """Send reminder with automatic retry on failure."""
+    result = send_reminder(r)
+    if not result:
+        raise RuntimeError(f"Failed to send reminder via {r.channel}")
+    return True
