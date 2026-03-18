@@ -127,6 +127,30 @@ class UserSubscription(db.Model):
     started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SavingsGoal(db.Model):
+    __tablename__ = "savings_goals"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    target_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    current_amount = db.Column(db.Numeric(14, 2), default=0, nullable=False)
+    target_date = db.Column(db.Date, nullable=True)
+    icon = db.Column(db.String(10), default="🎯", nullable=False)
+    color = db.Column(db.String(7), default="#6366f1", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SavingsTransaction(db.Model):
+    __tablename__ = "savings_transactions"
+    id = db.Column(db.Integer, primary_key=True)
+    goal_id = db.Column(db.Integer, db.ForeignKey("savings_goals.id"), nullable=False)
+    amount = db.Column(db.Numeric(14, 2), nullable=False)
+    type = db.Column(db.String(20), nullable=False)  # contribute | withdraw
+    note = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
 class AuditLog(db.Model):
     __tablename__ = "audit_logs"
     id = db.Column(db.Integer, primary_key=True)

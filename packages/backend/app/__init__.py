@@ -52,6 +52,14 @@ def create_app(settings: Settings | None = None) -> Flask:
     # Blueprint routes
     register_routes(app)
 
+    # Scheduler (weekly digest)
+    try:
+        from .scheduler import scheduler
+        scheduler.start()
+        logger.info("Scheduler started (weekly digest: Monday 08:00 UTC)")
+    except Exception:
+        logger.warning("Scheduler failed to start", exc_info=True)
+
     # Backward-compatible schema patch for existing databases.
     with app.app_context():
         _ensure_schema_compatibility(app)
@@ -118,3 +126,41 @@ def _ensure_schema_compatibility(app: Flask) -> None:
         conn.rollback()
     finally:
         conn.close()
+
+    # Savings tables
+    for ddl in [
+        """
+        CREATE TABLE IF NOT EXISTS savings_goals (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            name VARCHAR(200) NOT NULL,
+            target_amount NUMERIC(14,2) NOT NULL,
+            current_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+            target_date DATE,
+            icon VARCHAR(10) NOT NULL DEFAULT '🎯',
+            color VARCHAR(7) NOT NULL DEFAULT '#6366f1',
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS savings_transactions (
+            id SERIAL PRIMARY KEY,
+            goal_id INT NOT NULL REFERENCES savings_goals(id) ON DELETE CASCADE,
+            amount NUMERIC(14,2) NOT NULL,
+            type VARCHAR(20) NOT NULL,
+            note VARCHAR(200),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """,
+    ]:
+        try:
+            conn = db.engine.raw_connection()
+            cur = conn.cursor()
+            cur.execute(ddl)
+            conn.commit()
+        except Exception:
+            app.logger.exception("Schema compatibility patch failed for savings tables")
+            conn.rollback()
+        finally:
+            conn.close()

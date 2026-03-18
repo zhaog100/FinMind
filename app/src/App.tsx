@@ -8,6 +8,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Budgets } from "./pages/Budgets";
 import { Bills } from "./pages/Bills";
 import { Analytics } from "./pages/Analytics";
+import { Digest } from "./pages/Digest";
 import Reminders from "./pages/Reminders";
 import Expenses from "./pages/Expenses";
 import { SignIn } from "./pages/SignIn";
@@ -16,6 +17,8 @@ import NotFound from "./pages/NotFound";
 import { Landing } from "./pages/Landing";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import Account from "./pages/Account";
+import AccountsPage from "./pages/Accounts";
+import { Savings } from "./pages/Savings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -76,6 +79,14 @@ const App = () => (
               }
             />
             <Route
+              path="digest"
+              element={
+                <ProtectedRoute>
+                  <Digest />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="reminders"
               element={
                 <ProtectedRoute>
@@ -88,6 +99,22 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Account />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="accounts"
+              element={
+                <ProtectedRoute>
+                  <AccountsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="savings"
+              element={
+                <ProtectedRoute>
+                  <Savings />
                 </ProtectedRoute>
               }
             />
