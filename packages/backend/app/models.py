@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from enum import Enum
 from sqlalchemy import Enum as SAEnum
 from .extensions import db
@@ -125,6 +125,84 @@ class UserSubscription(db.Model):
     )
     active = db.Column(db.Boolean, default=False, nullable=False)
     started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GoalStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    COMPLETED = "COMPLETED"
+    ABANDONED = "ABANDONED"
+
+
+class SavingsGoal(db.Model):
+    __tablename__ = "savings_goals"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.String(500), nullable=True)
+    target_amount = db.Column(db.Numeric(14, 2), nullable=False)
+    current_amount = db.Column(db.Numeric(14, 2), default=0, nullable=False)
+    currency = db.Column(db.String(10), default="INR", nullable=False)
+    deadline = db.Column(db.Date, nullable=True)
+    status = db.Column(SAEnum(GoalStatus), default=GoalStatus.ACTIVE, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class MilestoneType(str, Enum):
+    PERCENT_25 = "PERCENT_25"
+    PERCENT_50 = "PERCENT_50"
+    PERCENT_75 = "PERCENT_75"
+    PERCENT_100 = "PERCENT_100"
+
+
+class SavingsMilestone(db.Model):
+    __tablename__ = "savings_milestones"
+    id = db.Column(db.Integer, primary_key=True)
+    goal_id = db.Column(
+        db.Integer, db.ForeignKey("savings_goals.id"), nullable=False
+    )
+    milestone_type = db.Column(SAEnum(MilestoneType), nullable=False)
+    achieved_at = db.Column(db.DateTime, nullable=True)
+    notified = db.Column(db.Boolean, default=False, nullable=False)
+    __table_args__ = (db.UniqueConstraint("goal_id", "milestone_type"),)
+
+
+class JobAttempt(db.Model):
+    __tablename__ = "job_attempts"
+    id = db.Column(db.Integer, primary_key=True)
+    job_type = db.Column(db.String(100), nullable=False, index=True)
+    payload = db.Column(db.Text, nullable=False)  # JSON-encoded
+    status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="pending",
+        index=True,
+    )  # pending | retry | completed | dead
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+    max_retries = db.Column(db.Integer, default=5, nullable=False)
+    last_error = db.Column(db.String(500), nullable=True)
+    run_after = db.Column(db.DateTime, nullable=False, index=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    dedup_key = db.Column(db.String(255), nullable=True, unique=True)
+    created_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
+class DeadLetter(db.Model):
+    __tablename__ = "dead_letters"
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, nullable=False)
+    job_type = db.Column(db.String(100), nullable=False)
+    payload = db.Column(db.Text, nullable=False)  # JSON-encoded
+    attempts = db.Column(db.Integer, nullable=False)
+    last_error = db.Column(db.String(500), nullable=True)
+    reason = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(
+        db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
 
 
 class AuditLog(db.Model):
