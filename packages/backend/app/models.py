@@ -133,3 +133,29 @@ class AuditLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     action = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class DuplicateGroup(db.Model):
+    __tablename__ = "duplicate_groups"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    canonical_expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    status = db.Column(db.String(20), default="pending")
+    reason = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            "id": self.id, "user_id": self.user_id,
+            "canonical_expense_id": self.canonical_expense_id,
+            "status": self.status, "reason": self.reason,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class DuplicateEntry(db.Model):
+    __tablename__ = "duplicate_entries"
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("duplicate_groups.id"), nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False)
+    similarity_score = db.Column(db.Float, default=1.0)
