@@ -37,6 +37,33 @@ export type DashboardSummary = {
   errors?: string[];
 };
 
+export type AccountOverview = {
+  currency: string;
+  total_income: number;
+  total_expenses: number;
+  net_savings: number;
+  transaction_count: number;
+  top_categories: Array<{
+    category_id: number | null;
+    category_name: string;
+    amount: number;
+    share_pct: number;
+  }>;
+};
+
+export type DashboardAccountsResponse = {
+  accounts: AccountOverview[];
+  totals: {
+    total_income: number;
+    total_expenses: number;
+  };
+};
+
+export async function getDashboardAccounts(month?: string): Promise<DashboardAccountsResponse> {
+  const query = month ? `?month=${encodeURIComponent(month)}` : '';
+  return api<DashboardAccountsResponse>(`/dashboard/accounts${query}`);
+}
+
 export async function getDashboardSummary(month?: string): Promise<DashboardSummary> {
   const query = month ? `?month=${encodeURIComponent(month)}` : '';
   return api<DashboardSummary>(`/dashboard/summary${query}`);

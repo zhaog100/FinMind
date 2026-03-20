@@ -168,6 +168,115 @@ def dashboard_summary():
     return jsonify(payload)
 
 
+@bp.get("/accounts")
+@jwt_required()
+def dashboard_accounts():
+    """Financial overview grouped by account currency."""
+    uid = int(get_jwt_identity())
+    ym = (request.args.get("month") or date.today().strftime("%Y-%m")).strip()
+    if not _is_valid_month(ym):
+        return jsonify(error="invalid month, expected YYYY-MM"), 400
+
+    year, month = map(int, ym.split("-"))
+
+    try:
+        # Group expenses/income by currency
+        rows = (
+            db.session.query(
+                Expense.currency,
+                Expense.expense_type,
+                func.coalesce(func.sum(Expense.amount), 0).label("total"),
+                func.count(Expense.id).label("cnt"),
+            )
+            .filter(
+                Expense.user_id == uid,
+                extract("year", Expense.spent_at) == year,
+                extract("month", Expense.spent_at) == month,
+            )
+            .group_by(Expense.currency, Expense.expense_type)
+            .all()
+        )
+
+        # Per-currency category breakdown
+        cat_rows = (
+            db.session.query(
+                Expense.currency,
+                Expense.category_id,
+                func.coalesce(Category.name, "Uncategorized").label("category_name"),
+                func.coalesce(func.sum(Expense.amount), 0).label("total_amount"),
+            )
+            .outerjoin(
+                Category,
+                (Category.id == Expense.category_id) & (Category.user_id == uid),
+            )
+            .filter(
+                Expense.user_id == uid,
+                extract("year", Expense.spent_at) == year,
+                extract("month", Expense.spent_at) == month,
+                Expense.expense_type != "INCOME",
+            )
+            .group_by(Expense.currency, Expense.category_id, Category.name)
+            .order_by(Expense.currency, func.sum(Expense.amount).desc())
+            .all()
+        )
+
+        # Build per-currency maps
+        currency_income = {}
+        currency_expenses = {}
+        currency_count = {}
+        for r in rows:
+            cur = r.currency or "INR"
+            if r.expense_type == "INCOME":
+                currency_income[cur] = float(r.total or 0)
+            else:
+                currency_expenses[cur] = float(r.total or 0)
+            currency_count[cur] = currency_count.get(cur, 0) + r.cnt
+
+        # Build category map per currency
+        cat_map: dict[str, list] = {}
+        for r in cat_rows:
+            cur = r.currency or "INR"
+            cat_map.setdefault(cur, []).append({
+                "category_id": r.category_id,
+                "category_name": r.category_name,
+                "amount": float(r.total_amount or 0),
+            })
+
+        all_currencies = sorted(set(currency_income) | set(currency_expenses))
+        accounts = []
+        total_income = 0.0
+        total_expenses = 0.0
+
+        for cur in all_currencies:
+            inc = currency_income.get(cur, 0.0)
+            exp = currency_expenses.get(cur, 0.0)
+            total_income += inc
+            total_expenses += exp
+            # Compute top category percentages
+            cats = cat_map.get(cur, [])
+            cat_total = sum(c["amount"] for c in cats)
+            for c in cats:
+                c["share_pct"] = round((c["amount"] / cat_total) * 100, 2) if cat_total > 0 else 0
+            accounts.append({
+                "currency": cur,
+                "total_income": inc,
+                "total_expenses": exp,
+                "net_savings": round(inc - exp, 2),
+                "transaction_count": currency_count.get(cur, 0),
+                "top_categories": cats[:5],
+            })
+
+        return jsonify({
+            "accounts": accounts,
+            "totals": {
+                "total_income": round(total_income, 2),
+                "total_expenses": round(total_expenses, 2),
+            },
+        })
+    except Exception:
+        return jsonify(error="failed to fetch account overview"), 500
+
+
 def _is_valid_month(ym: str) -> bool:
     if len(ym) != 7 or ym[4] != "-":
         return False

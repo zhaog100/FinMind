@@ -19,9 +19,10 @@ import {
   Calendar,
   Plus,
 } from 'lucide-react';
-import { getDashboardSummary, type DashboardSummary } from '@/api/dashboard';
+import { getDashboardSummary, getDashboardAccounts, type DashboardSummary, type AccountOverview } from '@/api/dashboard';
 import { useNavigate } from 'react-router-dom';
 import { formatMoney } from '@/lib/currency';
+import { AccountCards } from '@/components/AccountCards';
 
 function currency(n: number, code?: string) {
   return formatMoney(Number(n || 0), code);
@@ -30,6 +31,8 @@ function currency(n: number, code?: string) {
 export function Dashboard() {
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardSummary | null>(null);
+  const [accounts, setAccounts] = useState<AccountOverview[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -45,6 +48,17 @@ export function Dashboard() {
         setError(error instanceof Error ? error.message : 'Failed to load dashboard');
       } finally {
         setLoading(false);
+      }
+
+      // Fetch accounts overview in parallel
+      setAccountsLoading(true);
+      try {
+        const acctRes = await getDashboardAccounts(month);
+        setAccounts(acctRes.accounts);
+      } catch {
+        // non-critical, silently ignore
+      } finally {
+        setAccountsLoading(false);
       }
     })();
   }, [month]);
@@ -276,6 +290,10 @@ export function Dashboard() {
             </FinancialCardContent>
           </FinancialCard>
         </div>
+      </div>
+
+      <div className="mt-8">
+        <AccountCards accounts={accounts} loading={accountsLoading} />
       </div>
     </div>
   );
