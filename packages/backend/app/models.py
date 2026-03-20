@@ -133,3 +133,35 @@ class AuditLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     action = db.Column(db.String(100), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class DuplicateGroup(db.Model):
+    __tablename__ = "duplicate_groups"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    canonical_expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=True)
+    status = db.Column(db.String(20), default="pending")
+    reason = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class DuplicateEntry(db.Model):
+    __tablename__ = "duplicate_entries"
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey("duplicate_groups.id"), nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey("expenses.id"), nullable=False)
+    similarity_score = db.Column(db.Float, default=1.0)
+
+
+class TagRule(db.Model):
+    __tablename__ = "tag_rules"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    condition_type = db.Column(db.String(20), default="contains")
+    condition_value = db.Column(db.String(255), nullable=False)
+    action_type = db.Column(db.String(20), default="tag")
+    action_value = db.Column(db.String(255), nullable=False)
+    priority = db.Column(db.Integer, default=0)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
