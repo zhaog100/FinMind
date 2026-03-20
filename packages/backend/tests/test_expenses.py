@@ -260,3 +260,92 @@ def test_recurring_expense_generate_respects_end_date(client, auth_header):
     assert r.status_code == 200
     generated = r.get_json()
     assert len(generated) == 3
+
+
+# ============================================================================
+# BULK IMPORT TESTS - Issue #115
+# ============================================================================
+
+class TestBulkImportValidation:
+    
+    def test_validate_valid_csv(self, client, auth_header):
+        """测试有效 CSV 验证"""
+        from app.services.expense_import import validate_bulk_import
+        
+        test_data = [
+            {"date": "2026-01-01", "amount": "10.50", "description": "Test 1"},
+            {"date": "2026-01-02", "amount": "20.00", "description": "Test 2"},
+        ]
+        
+        result = validate_bulk_import(test_data)
+        
+        assert result["valid_count"] == 2
+        assert result["error_count"] == 0
+        assert result["warning_count"] == 0
+    
+    def test_validate_with_errors(self, client, auth_header):
+        """测试带错误的验证"""
+        from app.services.expense_import import validate_bulk_import
+        
+        test_data = [
+            {"date": "invalid", "amount": "10.50", "description": "Test 1"},
+            {"date": "2026-01-02", "amount": "invalid", "description": "Test 2"},
+        ]
+        
+        result = validate_bulk_import(test_data)
+        
+        assert result["error_count"] == 2
+        assert result["valid_count"] == 0
+    
+    def test_validate_with_warnings(self, client, auth_header):
+        """测试带警告的验证"""
+        from app.services.expense_import import validate_bulk_import
+        
+        test_data = [
+            {"date": "2026-01-01", "amount": "0", "description": "Test 1"},
+            {"date": "2026-01-01", "amount": "10.50", "description": "Duplicate"},
+            {"date": "2026-01-01", "amount": "10.50", "description": "Duplicate"},
+        ]
+        
+        result = validate_bulk_import(test_data)
+        
+        assert result["warning_count"] >= 1
+        assert result["valid_count"] >= 1
+    
+    def test_preview_import_endpoint(self, client, auth_header, tmp_path):
+        """测试导入预览 API"""
+        # 创建测试 CSV 文件
+        csv_file = tmp_path / "test.csv"
+        csv_file.write_text("date,amount,description\n2026-01-01,10.50,Test\n")
+        
+        with open(csv_file, 'rb') as f:
+            response = client.post(
+                "/expenses/import/preview",
+                data={"file": f},
+                headers=auth_header,
+                content_type='multipart/form-data'
+            )
+        
+        assert response.status_code == 200
+        data = response.get_json()
+        assert "valid_rows" in data
+        assert "warnings" in data
+        assert "errors" in data
+    
+    def test_confirm_import_endpoint(self, client, auth_header):
+        """测试确认导入 API"""
+        test_data = {
+            "valid_rows": [
+                {"date": "2026-01-01", "amount": "10.50", "description": "Test Import"}
+            ]
+        }
+        
+        response = client.post(
+            "/expenses/import/confirm",
+            json=test_data,
+            headers=auth_header
+        )
+        
+        assert response.status_code == 201
+        data = response.get_json()
+        assert data["imported_count"] >= 0

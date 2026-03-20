@@ -393,3 +393,172 @@ def _invalidate_expense_cache(uid: int, at: str):
             f"user:{uid}:dashboard_summary:*",
         ]
     )
+
+
+# ============================================================================
+# BULK IMPORT ENDPOINTS - Issue #115
+# ============================================================================
+
+@bp.post("/import/preview")
+@jwt_required()
+def preview_import():
+    """
+    预览导入数据
+    1. 上传文件
+    2. 验证数据
+    3. 返回预览和警告
+    """
+    from ..services.expense_import import validate_bulk_import, normalize_import_rows, extract_transactions_from_statement
+    
+    uid = int(get_jwt_identity())
+    
+    if 'file' not in request.files:
+        return jsonify(error="No file provided"), 400
+    
+    file = request.files['file']
+    data = file.read()
+    
+    try:
+        # 解析文件
+        rows = _parse_uploaded_file(file, data)
+        
+        # 验证数据
+        validation_result = validate_bulk_import(rows)
+        
+        logger.info("Preview import user=%s total=%s valid=%s errors=%s", 
+                   uid, validation_result["total"], 
+                   validation_result["valid_count"], 
+                   validation_result["error_count"])
+        
+        return jsonify(validation_result), 200
+    
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        logger.error("Preview import error user=%s error=%s", uid, str(e))
+        return jsonify(error="Failed to process file"), 500
+
+
+@bp.post("/import/confirm")
+@jwt_required()
+def confirm_import():
+    """
+    确认导入数据
+    1. 使用预览结果
+    2. 批量导入
+    3. 返回结果
+    """
+    uid = int(get_jwt_identity())
+    data = request.get_json()
+    
+    valid_rows = data.get('valid_rows', [])
+    
+    if not valid_rows:
+        return jsonify(error="No valid rows to import"), 400
+    
+    imported_count = 0
+    errors = []
+    
+    for idx, row in enumerate(valid_rows, 1):
+        try:
+            amount = _parse_amount(row.get('amount'))
+            if amount is None:
+                errors.append(f"Row {idx}: Invalid amount")
+                continue
+            
+            raw_date = row.get('date')
+            if not raw_date:
+                errors.append(f"Row {idx}: Missing date")
+                continue
+            
+            expense = Expense(
+                user_id=uid,
+                amount=amount,
+                currency=row.get('currency', 'USD'),
+                category_id=row.get('category_id'),
+                notes=row.get('description', ''),
+                spent_at=date.fromisoformat(raw_date) if raw_date else date.today(),
+                expense_type=_infer_expense_type(row.get('expense_type'), row.get('description', ''), amount)
+            )
+            db.session.add(expense)
+            imported_count += 1
+            
+        except Exception as e:
+            errors.append(f"Row {idx}: {str(e)}")
+            logger.warning("Import row error user=%s row=%s error=%s", uid, idx, str(e))
+    
+    if imported_count > 0:
+        db.session.commit()
+        logger.info("Imported expenses user=%s count=%s", uid, imported_count)
+        
+        # Invalidate caches
+        cache_delete_patterns([
+            f"user:{uid}:monthly_summary:*",
+            f"insights:{uid}:*",
+        ])
+    
+    return jsonify({
+        "imported_count": imported_count,
+        "errors": errors,
+        "status": "success" if imported_count > 0 else "partial"
+    }), 201 if imported_count > 0 else 400
+
+
+def _parse_uploaded_file(file, data):
+    """解析上传的文件"""
+    filename = (file.filename or "").lower()
+    content_type = file.content_type or ""
+    
+    if filename.endswith('.csv') or 'csv' in content_type:
+        return _parse_csv_rows(data)
+    elif filename.endswith('.xlsx') or 'excel' in content_type:
+        return _parse_excel_rows(data)
+    else:
+        raise ValueError("Only CSV and Excel files are supported")
+
+
+def _parse_csv_rows(data):
+    """解析 CSV 文件"""
+    import csv
+    import io
+    
+    text = data.decode('utf-8-sig', errors='ignore')
+    reader = csv.DictReader(io.StringIO(text))
+    out = []
+    for row in reader:
+        out.append({
+            "date": row.get("date") or row.get("spent_at"),
+            "amount": row.get("amount"),
+            "description": row.get("description") or row.get("notes"),
+            "category_id": row.get("category_id"),
+            "currency": row.get("currency") or "USD",
+        })
+    return out
+
+
+def _parse_excel_rows(data):
+    """解析 Excel 文件"""
+    try:
+        import pandas as pd
+        df = pd.read_excel(io.BytesIO(data))
+        return df.to_dict('records')
+    except ImportError:
+        raise ValueError("Excel support requires pandas library")
+    except Exception as e:
+        raise ValueError(f"Failed to parse Excel file: {str(e)}")
+
+
+def _infer_expense_type(raw_type, description, amount):
+    """推断收支类型"""
+    t = str(raw_type or "").strip().upper()
+    if t in {"INCOME", "EXPENSE"}:
+        return t
+    
+    if amount < 0:
+        return "EXPENSE"
+    
+    income_keywords = ("SALARY", "PAYROLL", "REFUND", "INTEREST", "DIVIDEND", "CREDIT")
+    if any(k in description.upper() for k in income_keywords):
+        return "INCOME"
+    
+    return "EXPENSE"

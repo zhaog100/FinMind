@@ -268,3 +268,85 @@ def _parse_pdf_line(line: str) -> dict[str, Any] | None:
         "expense_type": _infer_expense_type(None, description, amount),
         "currency": "USD",
     }
+
+
+# ============================================================================
+# BULK IMPORT VALIDATION - Issue #115
+# ============================================================================
+
+def validate_bulk_import(rows):
+    """
+    验证批量导入数据
+    返回验证结果（有效行、警告、错误）
+    """
+    valid_rows = []
+    warnings = []
+    errors = []
+    
+    required_fields = ['date', 'amount', 'description']
+    seen_transactions = set()
+    
+    for idx, row in enumerate(rows, 1):
+        row_errors = []
+        row_warnings = []
+        
+        # 检查必填字段
+        for field in required_fields:
+            if not row.get(field):
+                row_errors.append(f"Row {idx}: Missing required field '{field}'")
+        
+        # 验证日期格式
+        if row.get('date'):
+            if not _is_valid_date(row['date']):
+                row_errors.append(f"Row {idx}: Invalid date format '{row['date']}'")
+        
+        # 验证金额
+        if row.get('amount'):
+            if not _is_valid_amount(row['amount']):
+                row_errors.append(f"Row {idx}: Invalid amount '{row['amount']}'")
+            elif float(row['amount']) <= 0:
+                row_warnings.append(f"Row {idx}: Amount is zero or negative")
+        
+        # 检查重复
+        tx_key = (row.get('date'), row.get('amount'), row.get('description'))
+        if tx_key in seen_transactions:
+            row_warnings.append(f"Row {idx}: Possible duplicate transaction")
+        seen_transactions.add(tx_key)
+        
+        # 分类结果
+        if row_errors:
+            errors.extend(row_errors)
+        else:
+            if row_warnings:
+                warnings.extend(row_warnings)
+            valid_rows.append(row)
+    
+    return {
+        "valid_rows": valid_rows,
+        "warnings": warnings,
+        "errors": errors,
+        "total": len(rows),
+        "valid_count": len(valid_rows),
+        "warning_count": len(warnings),
+        "error_count": len(errors)
+    }
+
+
+def _is_valid_date(date_str):
+    """验证日期格式"""
+    import re
+    patterns = [
+        r'^\d{4}-\d{2}-\d{2}$',  # YYYY-MM-DD
+        r'^\d{2}/\d{2}/\d{4}$',  # MM/DD/YYYY
+        r'^\d{2}-\d{2}-\d{4}$',  # MM-DD-YYYY
+    ]
+    return any(re.match(p, str(date_str)) for p in patterns)
+
+
+def _is_valid_amount(amount):
+    """验证金额格式"""
+    try:
+        float(amount)
+        return True
+    except (ValueError, TypeError):
+        return False
