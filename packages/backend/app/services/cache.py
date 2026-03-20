@@ -45,3 +45,52 @@ def cache_delete_patterns(patterns: Iterable[str]):
                 redis_client.delete(*keys)
             if cursor == 0:
                 break
+
+
+# === Smart Caching (Issue #127) ===
+
+_cache_stats = {"hits": 0, "misses": 0}
+
+CACHE_TTL = {
+    "dashboard": 300, "analytics": 900, "insights": 1800,
+    "categories": 3600, "bills": 600,
+}
+
+
+def cache_get(key: str):
+    """Get value from cache, return None on miss."""
+    global _cache_stats
+    payload = redis_client.get(key)
+    if payload:
+        _cache_stats["hits"] += 1
+        return json.loads(payload)
+    _cache_stats["misses"] += 1
+    return None
+
+
+def cache_get_or_set(key: str, factory, ttl_seconds: int | None = None):
+    """Cache-aside: get from cache or compute and store."""
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+    value = factory()
+    cache_set(key, value, ttl_seconds=ttl_seconds)
+    return value
+
+
+def invalidate_user_caches(user_id: int):
+    """Invalidate all caches for a user."""
+    for pattern in [f"user:{user_id}:*", f"insights:{user_id}:*"]:
+        keys = redis_client.keys(pattern)
+        if keys:
+            redis_client.delete(*keys)
+
+
+def get_cache_stats() -> dict:
+    """Return cache hit/miss stats."""
+    total = _cache_stats["hits"] + _cache_stats["misses"]
+    return {
+        "hits": _cache_stats["hits"], "misses": _cache_stats["misses"],
+        "hit_rate": round(_cache_stats["hits"] / total * 100, 1) if total else 0,
+        "total": total,
+    }
