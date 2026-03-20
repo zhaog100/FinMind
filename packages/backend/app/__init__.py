@@ -1,3 +1,5 @@
+# MIT License
+
 from flask import Flask, jsonify
 from .config import Settings
 from .extensions import db, jwt
@@ -8,6 +10,7 @@ from .observability import (
     finalize_request,
     init_request_context,
 )
+from .utils.compression import init_compression_middleware, get_compression_stats
 from flask_cors import CORS
 import click
 import os
@@ -48,6 +51,9 @@ def create_app(settings: Settings | None = None) -> Flask:
     # CORS for local dev frontend
     CORS(app, resources={r"*": {"origins": "*"}}, supports_credentials=True)
 
+    # Compression & response optimization middleware
+    init_compression_middleware(app)
+
     # Redis (already global)
     # Blueprint routes
     register_routes(app)
@@ -55,6 +61,11 @@ def create_app(settings: Settings | None = None) -> Flask:
     # Backward-compatible schema patch for existing databases.
     with app.app_context():
         _ensure_schema_compatibility(app)
+        try:
+            from .utils.db_optimize import create_indexes
+            create_indexes()
+        except Exception:
+            app.logger.warning("Database index optimisation skipped", exc_info=True)
 
     @app.before_request
     def _before_request():
@@ -67,6 +78,12 @@ def create_app(settings: Settings | None = None) -> Flask:
     @app.get("/health")
     def health():
         return jsonify(status="ok"), 200
+
+    @app.get("/api/health")
+    def api_health():
+        stats = get_compression_stats()
+        stats["gzip_enabled"] = True
+        return jsonify(stats), 200
 
     @app.get("/metrics")
     def metrics():
