@@ -18,3 +18,6 @@ def register_routes(app: Flask):
     app.register_blueprint(categories_bp, url_prefix="/categories")
     app.register_blueprint(docs_bp, url_prefix="/docs")
     app.register_blueprint(dashboard_bp, url_prefix="/dashboard")
+
+from .cost_detect import bp as cost_detect_bp
+    app.register_blueprint(cost_detect_bp, url_prefix="/api/cost-detect")
